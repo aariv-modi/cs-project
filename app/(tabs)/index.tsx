@@ -1,98 +1,274 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ImageBackground,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+const GAME_DURATION = 60;
+const NUM_HOLES = 9;
+const SPAWN_INTERVAL_MS = 800;
+const POPUP_LIFETIME_MS = 1200;
+const DISTRACTION_CHANCE = 0.25;
 
-export default function HomeScreen() {
+type PopupKind = 'mole' | 'distraction';
+
+type Popup = {
+  id: number;
+  kind: PopupKind;
+  // tracks whether the user already tapped it (so the despawn timer won't
+  // also penalize the player for "missing" a mole they actually hit).
+  resolved: boolean;
+};
+
+export default function WhackAMoleScreen() {
+  const [holes, setHoles] = useState<(Popup | null)[]>(() =>
+    Array(NUM_HOLES).fill(null)
+  );
+  const [score, setScore] = useState(0);
+  const [highScore, setHighScore] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(GAME_DURATION);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  const nextIdRef = useRef(1);
+  const spawnTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const despawnTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const clearAllTimers = useCallback(() => {
+    if (spawnTimerRef.current) {
+      clearInterval(spawnTimerRef.current);
+      spawnTimerRef.current = null;
+    }
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+    despawnTimeoutsRef.current.forEach(clearTimeout);
+    despawnTimeoutsRef.current = [];
+  }, []);
+
+  useEffect(() => clearAllTimers, [clearAllTimers]);
+
+  const endGame = useCallback(() => {
+    clearAllTimers();
+    setIsPlaying(false);
+    setHoles(Array(NUM_HOLES).fill(null));
+    setHighScore((prev) => {
+      // functional update reads the latest score via closure on the outer state
+      return prev;
+    });
+  }, [clearAllTimers]);
+
+  // Update high score whenever the game stops while we have a finalized score.
+  useEffect(() => {
+    if (!isPlaying && score > highScore) {
+      setHighScore(score);
+    }
+  }, [isPlaying, score, highScore]);
+
+  const spawnPopup = useCallback(() => {
+    setHoles((current) => {
+      const emptyIndices = current
+        .map((h, i) => (h === null ? i : -1))
+        .filter((i) => i !== -1);
+      if (emptyIndices.length === 0) return current;
+
+      const idx = emptyIndices[Math.floor(Math.random() * emptyIndices.length)];
+      const kind: PopupKind =
+        Math.random() < DISTRACTION_CHANCE ? 'distraction' : 'mole';
+      const popup: Popup = { id: nextIdRef.current++, kind, resolved: false };
+
+      const next = current.slice();
+      next[idx] = popup;
+
+      const timeout = setTimeout(() => {
+        setHoles((cur) => {
+          const slot = cur[idx];
+          if (!slot || slot.id !== popup.id) return cur;
+          // If it was an unresolved mole, the player missed it: -1.
+          if (!slot.resolved && slot.kind === 'mole') {
+            setScore((s) => s - 1);
+          }
+          const updated = cur.slice();
+          updated[idx] = null;
+          return updated;
+        });
+      }, POPUP_LIFETIME_MS);
+      despawnTimeoutsRef.current.push(timeout);
+
+      return next;
+    });
+  }, []);
+
+  const startGame = useCallback(() => {
+    clearAllTimers();
+    setScore(0);
+    setTimeLeft(GAME_DURATION);
+    setHoles(Array(NUM_HOLES).fill(null));
+    setIsPlaying(true);
+
+    spawnTimerRef.current = setInterval(spawnPopup, SPAWN_INTERVAL_MS);
+    countdownTimerRef.current = setInterval(() => {
+      setTimeLeft((t) => {
+        if (t <= 1) {
+          endGame();
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+  }, [clearAllTimers, endGame, spawnPopup]);
+
+  const handleHoleTap = useCallback(
+    (index: number) => {
+      if (!isPlaying) return;
+      setHoles((cur) => {
+        const slot = cur[index];
+        if (!slot || slot.resolved) return cur;
+        if (slot.kind === 'mole') {
+          setScore((s) => s + 1);
+        } else {
+          setScore((s) => s - 2);
+        }
+        const updated = cur.slice();
+        updated[index] = null;
+        return updated;
+      });
+    },
+    [isPlaying]
+  );
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <ImageBackground
+      source={require('@/assets/images/bg.png')}
+      style={styles.bg}
+      resizeMode="cover">
+      <View style={styles.hud}>
+        <Text style={styles.hudText}>Score: {score}</Text>
+        <Text style={styles.hudText}>Time: {timeLeft}</Text>
+        <Text style={styles.hudText}>Best: {highScore}</Text>
+      </View>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      <View style={styles.grid}>
+        {holes.map((slot, i) => (
+          <Pressable
+            key={i}
+            style={styles.hole}
+            onPress={() => handleHoleTap(i)}>
+            {slot && (
+              <View
+                style={[
+                  styles.popup,
+                  slot.kind === 'mole' ? styles.mole : styles.distraction,
+                ]}>
+                <Text style={styles.popupEmoji}>
+                  {slot.kind === 'mole' ? '🐹' : '💣'}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+        ))}
+      </View>
+
+      {!isPlaying && (
+        <View style={styles.overlay} pointerEvents="box-none">
+          <Pressable style={styles.startButton} onPress={startGame}>
+            <Text style={styles.startButtonText}>
+              {timeLeft === 0 ? 'Play Again' : 'Start'}
+            </Text>
+          </Pressable>
+          {timeLeft === 0 && (
+            <Text style={styles.gameOverText}>Final Score: {score}</Text>
+          )}
+        </View>
+      )}
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  bg: {
+    flex: 1,
+    justifyContent: 'center',
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
+  hud: {
     position: 'absolute',
+    top: 60,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: 16,
+  },
+  hudText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: 'white',
+    textShadowColor: 'black',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 3,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignSelf: 'center',
+    width: '90%',
+    aspectRatio: 1,
+    maxWidth: 480,
+  },
+  hole: {
+    width: '33.333%',
+    height: '33.333%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  popup: {
+    width: '70%',
+    height: '70%',
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: 'rgba(0,0,0,0.4)',
+  },
+  mole: {
+    backgroundColor: '#b87333',
+  },
+  distraction: {
+    backgroundColor: '#cc3333',
+  },
+  popupEmoji: {
+    fontSize: 36,
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  startButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 40,
+    paddingVertical: 16,
+    borderRadius: 12,
+    borderWidth: 3,
+    borderColor: 'white',
+  },
+  startButtonText: {
+    color: 'white',
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  gameOverText: {
+    marginTop: 16,
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: 'white',
+    textShadowColor: 'black',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 3,
   },
 });
