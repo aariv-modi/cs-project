@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Image,
   ImageBackground,
   Pressable,
   StyleSheet,
@@ -13,11 +14,28 @@ const SPAWN_INTERVAL_MS = 800;
 const POPUP_LIFETIME_MS = 1200;
 const DISTRACTION_CHANCE = 0.25;
 
+const MOLE_IMAGES = [
+  require('@/assets/images/andrew1.png'),
+  require('@/assets/images/andrew2.png'),
+  require('@/assets/images/andrew3.png'),
+  require('@/assets/images/andrew4.png'),
+  require('@/assets/images/andrew5.png'),
+];
+
+const DISTRACTION_IMAGES = [
+  require('@/assets/images/praneel1.png'),
+  require('@/assets/images/praneel2.png'),
+  require('@/assets/images/praneel3.png'),
+  require('@/assets/images/praneel4.png'),
+  require('@/assets/images/praneel5.png'),
+];
+
 type PopupKind = 'mole' | 'distraction';
 
 type Popup = {
   id: number;
   kind: PopupKind;
+  imageIndex: number;
   // tracks whether the user already tapped it (so the despawn timer won't
   // also penalize the player for "missing" a mole they actually hit).
   resolved: boolean;
@@ -56,13 +74,8 @@ export default function WhackAMoleScreen() {
     clearAllTimers();
     setIsPlaying(false);
     setHoles(Array(NUM_HOLES).fill(null));
-    setHighScore((prev) => {
-      // functional update reads the latest score via closure on the outer state
-      return prev;
-    });
   }, [clearAllTimers]);
 
-  // Update high score whenever the game stops while we have a finalized score.
   useEffect(() => {
     if (!isPlaying && score > highScore) {
       setHighScore(score);
@@ -79,7 +92,13 @@ export default function WhackAMoleScreen() {
       const idx = emptyIndices[Math.floor(Math.random() * emptyIndices.length)];
       const kind: PopupKind =
         Math.random() < DISTRACTION_CHANCE ? 'distraction' : 'mole';
-      const popup: Popup = { id: nextIdRef.current++, kind, resolved: false };
+      const imageIndex = Math.floor(Math.random() * 5);
+      const popup: Popup = {
+        id: nextIdRef.current++,
+        kind,
+        imageIndex,
+        resolved: false,
+      };
 
       const next = current.slice();
       next[idx] = popup;
@@ -159,15 +178,15 @@ export default function WhackAMoleScreen() {
             style={styles.hole}
             onPress={() => handleHoleTap(i)}>
             {slot && (
-              <View
-                style={[
-                  styles.popup,
-                  slot.kind === 'mole' ? styles.mole : styles.distraction,
-                ]}>
-                <Text style={styles.popupEmoji}>
-                  {slot.kind === 'mole' ? '🐹' : '💣'}
-                </Text>
-              </View>
+              <Image
+                source={
+                  (slot.kind === 'mole' ? MOLE_IMAGES : DISTRACTION_IMAGES)[
+                    slot.imageIndex
+                  ]
+                }
+                style={styles.popup}
+                resizeMode="contain"
+              />
             )}
           </Pressable>
         ))}
@@ -226,22 +245,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   popup: {
-    width: '70%',
-    height: '70%',
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: 'rgba(0,0,0,0.4)',
-  },
-  mole: {
-    backgroundColor: '#b87333',
-  },
-  distraction: {
-    backgroundColor: '#cc3333',
-  },
-  popupEmoji: {
-    fontSize: 36,
+    width: '110%',
+    height: '110%',
+    transform: [{ translateY: '-25%' }],
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
